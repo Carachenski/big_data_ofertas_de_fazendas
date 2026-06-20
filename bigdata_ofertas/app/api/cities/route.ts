@@ -29,14 +29,14 @@ export async function GET(request: NextRequest) {
   try {
     const cidadesResult = await client.query(
       `
-      SELECT DISTINCT municipio FROM reserva_legal 
-      WHERE uf = $1 AND municipio IS NOT NULL 
-      ORDER BY municipio
+      SELECT DISTINCT cidade FROM reserva_legal
+      WHERE uf = $1 AND cidade IS NOT NULL
+      ORDER BY cidade
     `,
       [uf]
     );
 
-    const cidades = cidadesResult.rows.map((r) => r.municipio);
+    const cidades = cidadesResult.rows.map((r) => r.cidade);
     return NextResponse.json({ cidades });
   } catch (error) {
     console.error("Erro ao buscar cidades:", error);
