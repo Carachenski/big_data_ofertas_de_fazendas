@@ -7,7 +7,7 @@ import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { BarChart3, Table2, ScatterChartIcon, Ruler } from "lucide-react"
+import { BarChart3, Table2, ScatterChartIcon, Ruler, PieChartIcon } from "lucide-react"
 import {
   ScatterChart,
   Scatter,
@@ -20,6 +20,8 @@ import {
   BarChart,
   Bar,
   LabelList,
+  PieChart,
+  Pie,
 } from "recharts"
 
 interface UsoStat {
@@ -75,6 +77,8 @@ export default function AnalisePage() {
   const [usoStats, setUsoStats] = useState<UsoStat[]>([])
   const [pontos, setPontos] = useState<Ponto[]>([])
   const [faixasArea, setFaixasArea] = useState<FaixaArea[]>([])
+  const [totalOfertasPolo, setTotalOfertasPolo] = useState(0)
+  const [totalCarsPolo, setTotalCarsPolo] = useState(0)
   const [loadingStats, setLoadingStats] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
@@ -106,6 +110,8 @@ export default function AnalisePage() {
       setUsoStats([])
       setPontos([])
       setFaixasArea([])
+      setTotalOfertasPolo(0)
+      setTotalCarsPolo(0)
       setHasSearched(false)
       return
     }
@@ -127,11 +133,15 @@ export default function AnalisePage() {
         setUsoStats(data.usoStats)
         setPontos(data.pontos)
         setFaixasArea(data.faixasArea)
+        setTotalOfertasPolo(data.totalOfertasPolo)
+        setTotalCarsPolo(data.totalCarsPolo)
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erro desconhecido")
         setUsoStats([])
         setPontos([])
         setFaixasArea([])
+        setTotalOfertasPolo(0)
+        setTotalCarsPolo(0)
       } finally {
         setLoadingStats(false)
       }
@@ -446,7 +456,63 @@ export default function AnalisePage() {
         </CardContent>
       </Card>
 
-      {/* Parte 4: reservado */}
+      {/* Parte 4: Cobertura de ofertas em relação ao total de CARs do polo */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <PieChartIcon className="h-5 w-5 text-muted-foreground" /> Cobertura de Ofertas vs. CAR
+          </CardTitle>
+          <CardDescription>
+            Proporção entre o número de ofertas anunciadas e o total de Cadastros Ambientais Rurais (CAR) dos municípios do polo.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!hasSearched ? (
+            <p className="text-center text-muted-foreground py-8">Selecione um polo agrícola para ver o gráfico.</p>
+          ) : loadingStats ? (
+            <Skeleton className="h-96 w-full" />
+          ) : totalCarsPolo > 0 ? (
+            <div className="relative">
+              <ResponsiveContainer width="100%" height={400}>
+                <PieChart>
+                  <Pie
+                    data={[
+                      { name: "Ofertas no mercado", value: totalOfertasPolo },
+                      { name: "Demais imóveis (CAR sem oferta)", value: Math.max(totalCarsPolo - totalOfertasPolo, 0) },
+                    ]}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={90}
+                    outerRadius={140}
+                    paddingAngle={2}
+                    dataKey="value"
+                    nameKey="name"
+                  >
+                    <Cell fill="#0088FE" />
+                    <Cell fill="#e2e8f0" />
+                  </Pie>
+                  <Tooltip formatter={(value: number) => value.toLocaleString("pt-BR")} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute top-[180px] left-0 right-0 text-center pointer-events-none">
+                <div className="text-3xl font-bold text-foreground">
+                  {((totalOfertasPolo / totalCarsPolo) * 100).toFixed(2)}%
+                </div>
+                <div className="text-sm text-muted-foreground">de cobertura</div>
+              </div>
+              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <span className="h-2 w-2 rounded-full bg-[#0088FE]" />
+                <span>Ofertas no mercado</span>
+              </div>
+              <p className="text-center text-sm text-muted-foreground mt-2">
+                {totalOfertasPolo.toLocaleString("pt-BR")} ofertas de um total de {totalCarsPolo.toLocaleString("pt-BR")} CARs cadastrados nos municípios do polo.
+              </p>
+            </div>
+          ) : (
+            <p className="text-center text-muted-foreground py-8">Nenhum CAR encontrado para este polo.</p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

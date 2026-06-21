@@ -36,7 +36,7 @@ export async function GET() {
         FROM
             bigdata_ofertas b
         LEFT JOIN
-            reserva_legal r ON upper(unaccent(r.cidade)) = upper(unaccent(b.municipio)) AND r.uf = b.uf
+            reserva_legal r ON upper(immutable_unaccent(r.cidade)) = upper(immutable_unaccent(b.municipio)) AND r.uf = b.uf
         LEFT JOIN
             polo_agro_municipio pam ON pam.municipio_id = r.geocodigo
         LEFT JOIN

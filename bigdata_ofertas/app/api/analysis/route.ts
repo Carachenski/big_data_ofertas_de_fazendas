@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
             b.preco::numeric / b.area AS valor_ha
         FROM bigdata_ofertas b
         LEFT JOIN reserva_legal r
-               ON upper(unaccent(r.cidade)) = upper(unaccent(b.municipio))
+               ON upper(immutable_unaccent(r.cidade)) = upper(immutable_unaccent(b.municipio))
               AND r.uf = b.uf
         LEFT JOIN polo_agro_municipio pam
                ON pam.municipio_id = r.geocodigo
@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
         SELECT b.area
         FROM bigdata_ofertas b
         LEFT JOIN reserva_legal r
-               ON upper(unaccent(r.cidade)) = upper(unaccent(b.municipio))
+               ON upper(immutable_unaccent(r.cidade)) = upper(immutable_unaccent(b.municipio))
               AND r.uf = b.uf
         LEFT JOIN polo_agro_municipio pam
                ON pam.municipio_id = r.geocodigo
@@ -197,7 +197,44 @@ export async function GET(request: NextRequest) {
       quantidade: quantidadePorFaixa.get(faixa) ?? 0,
     }));
 
-    return NextResponse.json({ usoStats, pontos, faixasArea });
+    // Cobertura: total de ofertas do polo (sem filtro de validade de preço, contagem bruta de
+    // imóveis anunciados) vs total de CARs (cadastro ambiental rural) cadastrados nos municípios
+    // do polo. car_compilado.car tem o formato "UF-GEOCODIGO-HASH"; o geocódigo é o mesmo
+    // id_municipios usado em polo_agro_municipio.
+    const coberturaResult = await client.query(
+      `
+      SELECT
+        (
+          SELECT COUNT(*)
+          FROM bigdata_ofertas b
+          LEFT JOIN reserva_legal r
+                 ON upper(immutable_unaccent(r.cidade)) = upper(immutable_unaccent(b.municipio))
+                AND r.uf = b.uf
+          LEFT JOIN polo_agro_municipio pam
+                 ON pam.municipio_id = r.geocodigo
+          LEFT JOIN polo_agro pa
+                 ON pa.id_agrovalora = pam.polo_agro_id
+          WHERE pa.nome = $1
+            AND ($2::date IS NULL OR b.data_processo >= $2::date)
+            AND ($3::date IS NULL OR b.data_processo <= $3::date)
+        ) AS total_ofertas,
+        (
+          SELECT COUNT(cc.car)
+          FROM car_compilado cc
+          JOIN polo_agro_municipio pam
+                 ON pam.municipio_id = split_part(cc.car, '-', 2)::bigint
+          JOIN polo_agro pa
+                 ON pa.id_agrovalora = pam.polo_agro_id
+          WHERE pa.nome = $1
+        ) AS total_cars
+      `,
+      params
+    );
+
+    const totalOfertasPolo = parseInt(coberturaResult.rows[0].total_ofertas, 10);
+    const totalCarsPolo = parseInt(coberturaResult.rows[0].total_cars, 10);
+
+    return NextResponse.json({ usoStats, pontos, faixasArea, totalOfertasPolo, totalCarsPolo });
   } catch (error) {
     console.error("Erro ao buscar dados de análise:", error);
     return NextResponse.json(
