@@ -139,11 +139,6 @@ export default function AnalisePage() {
     loadAnalysis()
   }, [selectedPolo, mesInicio, mesFim])
 
-  const faixasAreaOrdenadas = useMemo(
-    () => [...faixasArea].sort((a, b) => b.quantidade - a.quantidade),
-    [faixasArea]
-  )
-
   // Ordem dos usos no eixo X segue a mesma ordem já definida pela API (usoStats)
   const usoOrder = useMemo(() => usoStats.map((u) => u.uso), [usoStats])
   const usoIndex = useMemo(() => {
@@ -418,7 +413,7 @@ export default function AnalisePage() {
           ) : faixasArea.length > 0 ? (
             <ResponsiveContainer width="100%" height={400}>
               <BarChart
-                data={faixasAreaOrdenadas}
+                data={faixasArea}
                 layout="vertical"
                 margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
               >

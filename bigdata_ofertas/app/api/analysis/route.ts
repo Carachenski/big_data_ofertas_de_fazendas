@@ -28,7 +28,11 @@ export async function GET(request: NextRequest) {
   }
 
   const client = await getDbClient();
-  const params = [poloAgricola, dataInicio, dataFim];
+  // polo_agro.nome está com encoding duplicado no banco (ex.: "Confusão" gravado como "ConfusÃ£o").
+  // /api/filters corrige isso para exibição com Buffer.from(nome,'latin1').toString('utf8'); aqui
+  // fazemos o caminho inverso para comparar com o valor bruto armazenado.
+  const poloAgricolaDb = Buffer.from(poloAgricola, "utf8").toString("latin1");
+  const params = [poloAgricolaDb, dataInicio, dataFim];
 
   // CTEs compartilhadas: calcula valor/ha e aplica as regras de valor absurdo por uso
   const baseCte = `

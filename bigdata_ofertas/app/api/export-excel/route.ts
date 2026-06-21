@@ -58,7 +58,10 @@ export async function GET(request: NextRequest) {
       whereClause += ` AND b.preco IS NOT NULL AND b.area IS NOT NULL AND b.area > 0`;
       if (poloAgricola) {
         whereClause += ` AND pa.nome = $${paramIndex}`;
-        values.push(poloAgricola);
+        // polo_agro.nome está com encoding duplicado no banco (ex.: "Confusão" gravado como
+        // "ConfusÃ£o"); /api/filters corrige para exibição, aqui revertemos para comparar com o
+        // valor bruto armazenado.
+        values.push(Buffer.from(poloAgricola, "utf8").toString("latin1"));
         paramIndex++;
       }
       if (usosPolo.length > 0) { // Changed condition to check array length
