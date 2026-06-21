@@ -22,6 +22,11 @@ export function MainNav({
       label: "Dashboard",
       active: pathname === "/dashboard",
     },
+    {
+      href: "/analise",
+      label: "Análise",
+      active: pathname === "/analise",
+    },
   ]
 
   return (
