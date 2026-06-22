@@ -96,6 +96,11 @@ function formatValue(key: string, value: any): React.ReactNode {
   return String(value)
 }
 
+interface ResultsTableProps {
+  results: OfertaResult[]
+  isLoading: boolean
+}
+
 export function ResultsTable({ results, isLoading }: ResultsTableProps) {
   const [modalContent, setModalContent] = useState<{ title: string; content: string } | null>(null)
 
