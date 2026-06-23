@@ -7,7 +7,7 @@ import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { BarChart3, Table2, ScatterChartIcon, Ruler, PieChartIcon } from "lucide-react"
+import { BarChart3, Table2, ScatterChartIcon, Ruler, PieChartIcon, GitCompare } from "lucide-react"
 import {
   ScatterChart,
   Scatter,
@@ -15,6 +15,7 @@ import {
   XAxis,
   YAxis,
   Tooltip,
+  Legend,
   ResponsiveContainer,
   Customized,
   BarChart,
@@ -44,6 +45,14 @@ interface FaixaArea {
   quantidade: number
 }
 
+interface ComparacaoFaixa {
+  faixa: string
+  carQtd: number
+  ofertaQtd: number
+  carZ: number
+  ofertaZ: number
+}
+
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#AF19FF", "#FF1943", "#19FFED", "#FFC0CB"]
 
 const Y_CAP = 300000
@@ -67,6 +76,13 @@ function formatFaixaLabel(faixa: string): string {
   return `${inicio.toLocaleString("pt-BR")}-${fim.toLocaleString("pt-BR")}`
 }
 
+function formatFaixaTamanhoLabel(faixa: string): string {
+  if (faixa === "<=1") return "até 1"
+  if (faixa.startsWith("+")) return `+${Number(faixa.slice(1)).toLocaleString("pt-BR")}`
+  const [inicio, fim] = faixa.split("-").map(Number)
+  return `${inicio.toLocaleString("pt-BR")}-${fim.toLocaleString("pt-BR")}`
+}
+
 export default function AnalisePage() {
   const [polos, setPolos] = useState<string[]>([])
   const [loadingPolos, setLoadingPolos] = useState(true)
@@ -77,6 +93,7 @@ export default function AnalisePage() {
   const [usoStats, setUsoStats] = useState<UsoStat[]>([])
   const [pontos, setPontos] = useState<Ponto[]>([])
   const [faixasArea, setFaixasArea] = useState<FaixaArea[]>([])
+  const [comparacaoFaixas, setComparacaoFaixas] = useState<ComparacaoFaixa[]>([])
   const [totalOfertasPolo, setTotalOfertasPolo] = useState(0)
   const [totalCarsPolo, setTotalCarsPolo] = useState(0)
   const [loadingStats, setLoadingStats] = useState(false)
@@ -110,6 +127,7 @@ export default function AnalisePage() {
       setUsoStats([])
       setPontos([])
       setFaixasArea([])
+      setComparacaoFaixas([])
       setTotalOfertasPolo(0)
       setTotalCarsPolo(0)
       setHasSearched(false)
@@ -133,6 +151,7 @@ export default function AnalisePage() {
         setUsoStats(data.usoStats)
         setPontos(data.pontos)
         setFaixasArea(data.faixasArea)
+        setComparacaoFaixas(data.comparacaoFaixas)
         setTotalOfertasPolo(data.totalOfertasPolo)
         setTotalCarsPolo(data.totalCarsPolo)
       } catch (err) {
@@ -140,6 +159,7 @@ export default function AnalisePage() {
         setUsoStats([])
         setPontos([])
         setFaixasArea([])
+        setComparacaoFaixas([])
         setTotalOfertasPolo(0)
         setTotalCarsPolo(0)
       } finally {
@@ -510,6 +530,51 @@ export default function AnalisePage() {
             </div>
           ) : (
             <p className="text-center text-muted-foreground py-8">Nenhum CAR encontrado para este polo.</p>
+          )}
+        </CardContent>
+      </Card>
+      {/* Parte 5: Comparação entre distribuição de tamanho do CAR e das ofertas (Z-score, como na planilha) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <GitCompare className="h-5 w-5 text-muted-foreground" /> Comparação CAR x Ofertas por Faixa de Tamanho
+          </CardTitle>
+          <CardDescription>
+            Mesmas faixas de área (ha) da planilha de referência. Padroniza a contagem de cada faixa pela média e
+            desvio padrão das faixas (separadamente para CAR e ofertas) — valores positivos indicam faixa
+            super-representada, negativos indicam sub-representada.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!hasSearched ? (
+            <p className="text-center text-muted-foreground py-8">Selecione um polo agrícola para ver o gráfico.</p>
+          ) : loadingStats ? (
+            <Skeleton className="h-96 w-full" />
+          ) : comparacaoFaixas.length > 0 ? (
+            <ResponsiveContainer width="100%" height={450}>
+              <BarChart data={comparacaoFaixas} stackOffset="sign" margin={{ top: 20, right: 30, left: 20, bottom: 40 }}>
+                <XAxis dataKey="faixa" tickFormatter={formatFaixaTamanhoLabel} angle={-40} textAnchor="end" height={70} interval={0} fontSize={12} />
+                <YAxis tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} width={50} />
+                <Tooltip
+                  formatter={(value: number, name: string) => [`${(value * 100).toFixed(0)}%`, name]}
+                  labelFormatter={(label: string) => formatFaixaTamanhoLabel(label)}
+                />
+                <Legend />
+                <Bar dataKey="carZ" name="CAR" stackId="faixa" fill="#0c4a6e" />
+                <Bar dataKey="ofertaZ" name="OFERTAS" stackId="faixa" fill="#f97316">
+                  <LabelList
+                    dataKey="ofertaQtd"
+                    position="inside"
+                    formatter={(value: number) => value.toLocaleString("pt-BR")}
+                    fontSize={12}
+                    fontWeight={600}
+                    fill="#fff"
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-center text-muted-foreground py-8">Nenhum dado encontrado para este polo.</p>
           )}
         </CardContent>
       </Card>

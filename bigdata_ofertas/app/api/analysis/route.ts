@@ -234,7 +234,101 @@ export async function GET(request: NextRequest) {
     const totalOfertasPolo = parseInt(coberturaResult.rows[0].total_ofertas, 10);
     const totalCarsPolo = parseInt(coberturaResult.rows[0].total_cars, 10);
 
-    return NextResponse.json({ usoStats, pontos, faixasArea, totalOfertasPolo, totalCarsPolo });
+    // Comparação CAR x Ofertas por faixa de tamanho (mesmos intervalos da planilha
+    // LISTA_DE_FREQUENCIA.xlsx: 1, 5, 10, 20, 30, 50, 100, 300, 500, 1500, 3000, 5000, +5000 ha)
+    const faixaCase = `
+      CASE
+        WHEN area <= 1 THEN '<=1'
+        WHEN area <= 5 THEN '1-5'
+        WHEN area <= 10 THEN '5-10'
+        WHEN area <= 20 THEN '10-20'
+        WHEN area <= 30 THEN '20-30'
+        WHEN area <= 50 THEN '30-50'
+        WHEN area <= 100 THEN '50-100'
+        WHEN area <= 300 THEN '100-300'
+        WHEN area <= 500 THEN '300-500'
+        WHEN area <= 1500 THEN '500-1500'
+        WHEN area <= 3000 THEN '1500-3000'
+        WHEN area <= 5000 THEN '3000-5000'
+        ELSE '+5000'
+      END
+    `;
+    const comparacaoResult = await client.query(
+      `
+      WITH car_polo AS (
+        SELECT cc.area::numeric AS area
+        FROM car_compilado cc
+        JOIN polo_agro_municipio pam
+               ON pam.municipio_id = split_part(cc.car, '-', 2)::bigint
+        JOIN polo_agro pa
+               ON pa.id_agrovalora = pam.polo_agro_id
+        WHERE pa.nome = $1
+      ),
+      ofertas_polo AS (
+        SELECT b.area
+        FROM bigdata_ofertas b
+        LEFT JOIN reserva_legal r
+               ON upper(immutable_unaccent(r.cidade)) = upper(immutable_unaccent(b.municipio))
+              AND r.uf = b.uf
+        LEFT JOIN polo_agro_municipio pam
+               ON pam.municipio_id = r.geocodigo
+        LEFT JOIN polo_agro pa
+               ON pa.id_agrovalora = pam.polo_agro_id
+        WHERE pa.nome = $1
+          AND b.area IS NOT NULL
+          AND b.area > 0
+          AND ($2::date IS NULL OR b.data_processo >= $2::date)
+          AND ($3::date IS NULL OR b.data_processo <= $3::date)
+      ),
+      car_faixas AS (
+        SELECT ${faixaCase} AS faixa, COUNT(*) AS quantidade
+        FROM car_polo
+        GROUP BY faixa
+      ),
+      oferta_faixas AS (
+        SELECT ${faixaCase} AS faixa, COUNT(*) AS quantidade
+        FROM ofertas_polo
+        GROUP BY faixa
+      )
+      SELECT 'car' AS tipo, faixa, quantidade FROM car_faixas
+      UNION ALL
+      SELECT 'oferta' AS tipo, faixa, quantidade FROM oferta_faixas
+      `,
+      params
+    );
+
+    const ordemFaixasTamanho = [
+      "<=1", "1-5", "5-10", "10-20", "20-30", "30-50", "50-100",
+      "100-300", "300-500", "500-1500", "1500-3000", "3000-5000", "+5000",
+    ];
+    const carPorFaixa = new Map<string, number>();
+    const ofertaPorFaixa = new Map<string, number>();
+    for (const row of comparacaoResult.rows) {
+      const qtd = parseInt(row.quantidade, 10);
+      if (row.tipo === "car") carPorFaixa.set(row.faixa, qtd);
+      else ofertaPorFaixa.set(row.faixa, qtd);
+    }
+    const carCounts = ordemFaixasTamanho.map((f) => carPorFaixa.get(f) ?? 0);
+    const ofertaCounts = ordemFaixasTamanho.map((f) => ofertaPorFaixa.get(f) ?? 0);
+
+    function mediaDesvio(valores: number[]) {
+      const n = valores.length;
+      const media = valores.reduce((a, b) => a + b, 0) / n;
+      const variancia = valores.reduce((a, b) => a + (b - media) ** 2, 0) / (n - 1);
+      return { media, desvio: Math.sqrt(variancia) };
+    }
+    const { media: mediaCarFaixas, desvio: desvioCarFaixas } = mediaDesvio(carCounts);
+    const { media: mediaOfertaFaixas, desvio: desvioOfertaFaixas } = mediaDesvio(ofertaCounts);
+
+    const comparacaoFaixas = ordemFaixasTamanho.map((faixa, i) => ({
+      faixa,
+      carQtd: carCounts[i],
+      ofertaQtd: ofertaCounts[i],
+      carZ: desvioCarFaixas > 0 ? (carCounts[i] - mediaCarFaixas) / desvioCarFaixas : 0,
+      ofertaZ: desvioOfertaFaixas > 0 ? (ofertaCounts[i] - mediaOfertaFaixas) / desvioOfertaFaixas : 0,
+    }));
+
+    return NextResponse.json({ usoStats, pontos, faixasArea, totalOfertasPolo, totalCarsPolo, comparacaoFaixas });
   } catch (error) {
     console.error("Erro ao buscar dados de análise:", error);
     return NextResponse.json(
