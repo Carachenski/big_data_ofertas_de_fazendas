@@ -73,6 +73,24 @@ function usoPriority(uso: string) {
   return USO_PRIORITY[uso] ?? 8
 }
 
+// Limites (ha) de cada faixa, espelhando o CASE da API (app/api/analysis/route.ts);
+// usados para exportar exatamente as ofertas daquela faixa via /api/export-excel
+const FAIXA_BOUNDS: Record<string, [number, number | null]> = {
+  "<=1": [0, 1],
+  "1-5": [1, 5],
+  "5-10": [5, 10],
+  "10-20": [10, 20],
+  "20-30": [20, 30],
+  "30-50": [30, 50],
+  "50-100": [50, 100],
+  "100-300": [100, 300],
+  "300-500": [300, 500],
+  "500-1500": [500, 1500],
+  "1500-3000": [1500, 3000],
+  "3000-5000": [3000, 5000],
+  "+5000": [5000, null],
+}
+
 function mediana(valores: number[]): number {
   const sorted = [...valores].sort((a, b) => a - b)
   const meio = Math.floor(sorted.length / 2)
@@ -117,6 +135,7 @@ export default function AnalisePage() {
   const [faixasArea, setFaixasArea] = useState<FaixaArea[]>([])
   const [comparacaoFaixas, setComparacaoFaixas] = useState<ComparacaoFaixa[]>([])
   const [faixaZscoreSelecionada, setFaixaZscoreSelecionada] = useState<string | null>(null)
+  const [exportandoUso, setExportandoUso] = useState<string | null>(null)
   const [totalOfertasPolo, setTotalOfertasPolo] = useState(0)
   const [totalCarsPolo, setTotalCarsPolo] = useState(0)
   const [loadingStats, setLoadingStats] = useState(false)
@@ -267,16 +286,56 @@ export default function AnalisePage() {
     [pontosFaixaZscore]
   )
 
+  async function handleDownloadFaixaUso(uso: string) {
+    if (!faixaZscoreSelecionada || exportandoUso) return
+    const [areaMin, areaMax] = FAIXA_BOUNDS[faixaZscoreSelecionada] ?? [0, null]
+    setExportandoUso(uso)
+    try {
+      const params = new URLSearchParams({
+        searchType: "polo",
+        poloAgricola: selectedPolo,
+        uso,
+        areaMin: String(areaMin),
+      })
+      if (areaMax !== null) params.append("areaMax", String(areaMax))
+      if (mesInicio) params.append("dataInicio", `${mesInicio}-01`)
+      if (mesFim) params.append("dataFim", ultimoDiaDoMes(mesFim))
+
+      const response = await fetch(`/api/export-excel?${params.toString()}`)
+      if (!response.ok) {
+        throw new Error("Erro ao exportar para Excel")
+      }
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `ofertas_${selectedPolo}_${uso}_${faixaZscoreSelecionada}ha.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error("Erro ao exportar ofertas da faixa/uso:", err)
+    } finally {
+      setExportandoUso(null)
+    }
+  }
+
   function UsoTickFaixaZscore({ x, y, payload }: any) {
     const uso = usoOrderFaixaZscore[payload.value]
     const stat = usoStatsFaixaZscoreByName.get(uso)
+    const baixando = exportandoUso === uso
     return (
-      <g transform={`translate(${x},${y})`}>
-        <text x={0} y={0} dy={16} textAnchor="middle" fontSize={12} fill="#374151">
+      <g
+        transform={`translate(${x},${y})`}
+        style={{ cursor: baixando ? "wait" : "pointer" }}
+        onClick={() => handleDownloadFaixaUso(uso)}
+      >
+        <text x={0} y={0} dy={16} textAnchor="middle" fontSize={12} fill="#374151" textDecoration="underline">
           {uso}
         </text>
         <text x={0} y={0} dy={32} textAnchor="middle" fontSize={11} fill="#6b7280">
-          {`(n=${stat?.quantidade ?? 0})`}
+          {baixando ? "baixando..." : `(n=${stat?.quantidade ?? 0})`}
         </text>
       </g>
     )
@@ -744,7 +803,7 @@ export default function AnalisePage() {
                   </div>
                   <p className="text-sm text-muted-foreground mb-4">
                     {usoStatsFaixaZscore.length > 0
-                      ? `linha vermelha = mediana da classe — eixo até ${formatCurrency(Y_CAP)}/ha (${pontosForaDaVistaFaixaZscore.toLocaleString("pt-BR")} amostras acima, fora da vista)`
+                      ? `linha vermelha = mediana da classe — eixo até ${formatCurrency(Y_CAP)}/ha (${pontosForaDaVistaFaixaZscore.toLocaleString("pt-BR")} amostras acima, fora da vista). Clique no nome do uso, abaixo do gráfico, para baixar a planilha com as ofertas daquela coluna.`
                       : "Cada ponto representa uma oferta. A linha vermelha marca a mediana de cada classe de uso."}
                   </p>
                   {usoStatsFaixaZscore.length > 0 ? (

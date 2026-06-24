@@ -26,13 +26,18 @@ export async function GET(request: NextRequest) {
 
   // Parâmetros para busca por polo
   const poloAgricola = searchParams.get("poloAgricola") || "";
-  const usosPolo = searchParams.getAll("uso"); // Changed from usoPolo to usosPolo and get() to getAll()
+  const usosPolo = searchParams.getAll("uso"); // Changed from usoPolo to usosPolo e get() to getAll()
+  // Filtros opcionais usados pelo clique no gráfico de dispersão por faixa de tamanho (Análise por Polo)
+  const dataInicio = searchParams.get("dataInicio") || "";
+  const dataFim = searchParams.get("dataFim") || "";
+  const areaMin = searchParams.get("areaMin") || "";
+  const areaMax = searchParams.get("areaMax") || "";
 
   const client = await getDbClient();
 
   try {
     let whereClause = "";
-    const values: (string | string[])[] = [];
+    const values: (string | string[] | number)[] = [];
     let paramIndex = 1;
 
     if (searchType === "location") {
@@ -67,6 +72,26 @@ export async function GET(request: NextRequest) {
       if (usosPolo.length > 0) { // Changed condition to check array length
         whereClause += ` AND b.uso = ANY($${paramIndex})`; // Changed to ANY for multi-select
         values.push(usosPolo); // Pushing the array
+        paramIndex++;
+      }
+      if (dataInicio) {
+        whereClause += ` AND b.data_processo >= $${paramIndex}::date`;
+        values.push(dataInicio);
+        paramIndex++;
+      }
+      if (dataFim) {
+        whereClause += ` AND b.data_processo <= $${paramIndex}::date`;
+        values.push(dataFim);
+        paramIndex++;
+      }
+      if (areaMin) {
+        whereClause += ` AND b.area > $${paramIndex}`;
+        values.push(Number(areaMin));
+        paramIndex++;
+      }
+      if (areaMax) {
+        whereClause += ` AND b.area <= $${paramIndex}`;
+        values.push(Number(areaMax));
         paramIndex++;
       }
     }
