@@ -34,11 +34,32 @@ export async function GET(request: NextRequest) {
   const poloAgricolaDb = Buffer.from(poloAgricola, "utf8").toString("latin1");
   const params = [poloAgricolaDb, dataInicio, dataFim];
 
+  // Faixas de tamanho (ha) usadas tanto no gráfico de comparação CAR x Ofertas quanto para
+  // classificar os pontos do gráfico de dispersão (permite filtrar a dispersão por faixa clicada)
+  const faixaCase = `
+      CASE
+        WHEN area <= 1 THEN '<=1'
+        WHEN area <= 5 THEN '1-5'
+        WHEN area <= 10 THEN '5-10'
+        WHEN area <= 20 THEN '10-20'
+        WHEN area <= 30 THEN '20-30'
+        WHEN area <= 50 THEN '30-50'
+        WHEN area <= 100 THEN '50-100'
+        WHEN area <= 300 THEN '100-300'
+        WHEN area <= 500 THEN '300-500'
+        WHEN area <= 1500 THEN '500-1500'
+        WHEN area <= 3000 THEN '1500-3000'
+        WHEN area <= 5000 THEN '3000-5000'
+        ELSE '+5000'
+      END
+  `;
+
   // CTEs compartilhadas: calcula valor/ha e aplica as regras de valor absurdo por uso
   const baseCte = `
       WITH bruto AS (
         SELECT
             b.uso,
+            b.area,
             b.preco::numeric / b.area AS valor_ha
         FROM bigdata_ofertas b
         LEFT JOIN reserva_legal r
@@ -135,7 +156,7 @@ export async function GET(request: NextRequest) {
     const pontosResult = await client.query(
       `
       ${baseCte}
-      SELECT uso, valor_ha FROM base
+      SELECT uso, valor_ha, area, ${faixaCase} AS faixa FROM base
       `,
       params
     );
@@ -186,6 +207,8 @@ export async function GET(request: NextRequest) {
     const pontos = pontosResult.rows.map((row) => ({
       uso: row.uso,
       valorHa: parseFloat(row.valor_ha),
+      area: parseFloat(row.area),
+      faixa: row.faixa,
     }));
 
     const ordemFaixas = ["0-10", "10-100", "100-1000", "1000-10000", "+10000"];
@@ -236,23 +259,6 @@ export async function GET(request: NextRequest) {
 
     // Comparação CAR x Ofertas por faixa de tamanho (mesmos intervalos da planilha
     // LISTA_DE_FREQUENCIA.xlsx: 1, 5, 10, 20, 30, 50, 100, 300, 500, 1500, 3000, 5000, +5000 ha)
-    const faixaCase = `
-      CASE
-        WHEN area <= 1 THEN '<=1'
-        WHEN area <= 5 THEN '1-5'
-        WHEN area <= 10 THEN '5-10'
-        WHEN area <= 20 THEN '10-20'
-        WHEN area <= 30 THEN '20-30'
-        WHEN area <= 50 THEN '30-50'
-        WHEN area <= 100 THEN '50-100'
-        WHEN area <= 300 THEN '100-300'
-        WHEN area <= 500 THEN '300-500'
-        WHEN area <= 1500 THEN '500-1500'
-        WHEN area <= 3000 THEN '1500-3000'
-        WHEN area <= 5000 THEN '3000-5000'
-        ELSE '+5000'
-      END
-    `;
     const comparacaoResult = await client.query(
       `
       WITH car_polo AS (

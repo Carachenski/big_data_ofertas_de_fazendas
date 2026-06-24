@@ -38,6 +38,8 @@ interface UsoStat {
 interface Ponto {
   uso: string
   valorHa: number
+  area: number
+  faixa: string
 }
 
 interface FaixaArea {
@@ -56,6 +58,26 @@ interface ComparacaoFaixa {
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#AF19FF", "#FF1943", "#19FFED", "#FFC0CB"]
 
 const Y_CAP = 300000
+
+// Mesma ordem de prioridade usada pela API para os usos (ver app/api/analysis/route.ts)
+const USO_PRIORITY: Record<string, number> = {
+  Lavoura: 1,
+  "Cana-de-Açucar": 2,
+  "Culturas Permanentes": 3,
+  Pastagem: 4,
+  Silvicultura: 5,
+  Lazer: 6,
+  "Mata Nativa": 7,
+}
+function usoPriority(uso: string) {
+  return USO_PRIORITY[uso] ?? 8
+}
+
+function mediana(valores: number[]): number {
+  const sorted = [...valores].sort((a, b) => a - b)
+  const meio = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[meio - 1] + sorted[meio]) / 2 : sorted[meio]
+}
 
 function formatCurrency(value: number | null) {
   if (value === null || Number.isNaN(value)) return "-"
@@ -94,6 +116,7 @@ export default function AnalisePage() {
   const [pontos, setPontos] = useState<Ponto[]>([])
   const [faixasArea, setFaixasArea] = useState<FaixaArea[]>([])
   const [comparacaoFaixas, setComparacaoFaixas] = useState<ComparacaoFaixa[]>([])
+  const [faixaZscoreSelecionada, setFaixaZscoreSelecionada] = useState<string | null>(null)
   const [totalOfertasPolo, setTotalOfertasPolo] = useState(0)
   const [totalCarsPolo, setTotalCarsPolo] = useState(0)
   const [loadingStats, setLoadingStats] = useState(false)
@@ -128,6 +151,7 @@ export default function AnalisePage() {
       setPontos([])
       setFaixasArea([])
       setComparacaoFaixas([])
+      setFaixaZscoreSelecionada(null)
       setTotalOfertasPolo(0)
       setTotalCarsPolo(0)
       setHasSearched(false)
@@ -138,6 +162,7 @@ export default function AnalisePage() {
       setLoadingStats(true)
       setError(null)
       setHasSearched(true)
+      setFaixaZscoreSelecionada(null)
       try {
         const params = new URLSearchParams({ poloAgricola: selectedPolo })
         if (mesInicio) params.append("dataInicio", `${mesInicio}-01`)
@@ -195,6 +220,91 @@ export default function AnalisePage() {
   }, [pontos, usoIndex])
 
   const pontosForaDaVista = useMemo(() => pontos.filter((p) => p.valorHa > Y_CAP).length, [pontos])
+
+  const pontosFaixaZscore = useMemo(
+    () => pontos.filter((p) => p.faixa === faixaZscoreSelecionada),
+    [pontos, faixaZscoreSelecionada]
+  )
+
+  // Réplica do gráfico "Dispersão do Valor por Hectare por Uso" (Parte 2), porém recalculada
+  // só com os pontos da faixa de tamanho clicada no gráfico de Z-score
+  const usoStatsFaixaZscore = useMemo(() => {
+    const grupos = new Map<string, number[]>()
+    pontosFaixaZscore.forEach((p) => {
+      if (!grupos.has(p.uso)) grupos.set(p.uso, [])
+      grupos.get(p.uso)!.push(p.valorHa)
+    })
+    return Array.from(grupos.entries())
+      .map(([uso, valores]) => ({ uso, quantidade: valores.length, mediana: mediana(valores) }))
+      .sort((a, b) => usoPriority(a.uso) - usoPriority(b.uso))
+  }, [pontosFaixaZscore])
+
+  const usoOrderFaixaZscore = useMemo(() => usoStatsFaixaZscore.map((u) => u.uso), [usoStatsFaixaZscore])
+  const usoIndexFaixaZscore = useMemo(() => {
+    const m = new Map<string, number>()
+    usoOrderFaixaZscore.forEach((u, i) => m.set(u, i))
+    return m
+  }, [usoOrderFaixaZscore])
+  const usoStatsFaixaZscoreByName = useMemo(() => {
+    const m = new Map<string, { uso: string; quantidade: number; mediana: number }>()
+    usoStatsFaixaZscore.forEach((s) => m.set(s.uso, s))
+    return m
+  }, [usoStatsFaixaZscore])
+
+  const scatterDataFaixaZscore = useMemo(() => {
+    return pontosFaixaZscore
+      .filter((p) => p.valorHa <= Y_CAP)
+      .map((p, i) => {
+        const idx = usoIndexFaixaZscore.get(p.uso) ?? 0
+        const seed = Math.sin(i * 12.9898) * 43758.5453
+        const jitter = (seed - Math.floor(seed) - 0.5) * 0.7
+        return { x: idx + jitter, y: p.valorHa, uso: p.uso }
+      })
+  }, [pontosFaixaZscore, usoIndexFaixaZscore])
+
+  const pontosForaDaVistaFaixaZscore = useMemo(
+    () => pontosFaixaZscore.filter((p) => p.valorHa > Y_CAP).length,
+    [pontosFaixaZscore]
+  )
+
+  function UsoTickFaixaZscore({ x, y, payload }: any) {
+    const uso = usoOrderFaixaZscore[payload.value]
+    const stat = usoStatsFaixaZscoreByName.get(uso)
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <text x={0} y={0} dy={16} textAnchor="middle" fontSize={12} fill="#374151">
+          {uso}
+        </text>
+        <text x={0} y={0} dy={32} textAnchor="middle" fontSize={11} fill="#6b7280">
+          {`(n=${stat?.quantidade ?? 0})`}
+        </text>
+      </g>
+    )
+  }
+
+  function renderMedianLinesFaixaZscore(props: any) {
+    const xAxis = Object.values(props.xAxisMap ?? {})[0] as any
+    const yAxis = Object.values(props.yAxisMap ?? {})[0] as any
+    if (!xAxis || !yAxis) return null
+    return (
+      <g>
+        {usoStatsFaixaZscore.map((stat, idx) => {
+          if (stat.mediana > Y_CAP) return null
+          const x1 = xAxis.scale(idx - 0.35)
+          const x2 = xAxis.scale(idx + 0.35)
+          const y = yAxis.scale(stat.mediana)
+          return (
+            <g key={stat.uso}>
+              <line x1={x1} x2={x2} y1={y} y2={y} stroke="#dc2626" strokeWidth={3} />
+              <text x={(x1 + x2) / 2} y={y - 8} textAnchor="middle" fontSize={11} fontWeight="bold" fill="#dc2626">
+                {`mediana ${formatCurrency(stat.mediana)}`}
+              </text>
+            </g>
+          )
+        })}
+      </g>
+    )
+  }
 
   function UsoTick({ x, y, payload }: any) {
     const uso = usoOrder[payload.value]
@@ -541,7 +651,8 @@ export default function AnalisePage() {
           </CardTitle>
           <CardDescription>
             Compara, faixa a faixa, como o tamanho dos imóveis anunciados se distribui em relação ao total de CARs
-            do polo: barras para cima indicam faixa super-representada, para baixo indicam sub-representada.
+            do polo: barras para cima indicam faixa super-representada, para baixo indicam sub-representada. Clique
+            em uma faixa para ver a dispersão de valor por hectare das ofertas daquele tamanho.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -550,31 +661,139 @@ export default function AnalisePage() {
           ) : loadingStats ? (
             <Skeleton className="h-96 w-full" />
           ) : comparacaoFaixas.length > 0 ? (
-            <ResponsiveContainer width="100%" height={450}>
-              <BarChart data={comparacaoFaixas} stackOffset="sign" margin={{ top: 20, right: 30, left: 20, bottom: 40 }}>
-                <XAxis dataKey="faixa" tickFormatter={formatFaixaTamanhoLabel} angle={-40} textAnchor="end" height={70} interval={0} fontSize={12} />
-                <YAxis tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} width={50} />
-                <Tooltip
-                  formatter={(value: number, name: string) => [`${(value * 100).toFixed(0)}%`, name]}
-                  labelFormatter={(label: string) => formatFaixaTamanhoLabel(label)}
-                />
-                <Legend />
-                <Bar dataKey="carZ" name="CAR" stackId="faixa" fill="#0c4a6e" />
-                <Bar dataKey="ofertaZ" name="OFERTAS" stackId="faixa" fill="#f97316">
-                  <LabelList
-                    dataKey="ofertaQtd"
-                    position="inside"
-                    formatter={(value: number) => value.toLocaleString("pt-BR")}
-                    fontSize={12}
-                    fontWeight={600}
-                    fill="#fff"
-                    stroke="#000"
-                    strokeWidth={3}
-                    paintOrder="stroke"
+            <>
+              <ResponsiveContainer width="100%" height={450}>
+                <BarChart data={comparacaoFaixas} stackOffset="sign" margin={{ top: 20, right: 30, left: 20, bottom: 40 }}>
+                  <XAxis dataKey="faixa" tickFormatter={formatFaixaTamanhoLabel} angle={-40} textAnchor="end" height={70} interval={0} fontSize={12} />
+                  <YAxis tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} width={50} />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [`${(value * 100).toFixed(0)}%`, name]}
+                    labelFormatter={(label: string) => formatFaixaTamanhoLabel(label)}
                   />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+                  <Legend />
+                  <Bar
+                    dataKey="carZ"
+                    name="CAR"
+                    stackId="faixa"
+                    fill="#0c4a6e"
+                    cursor="pointer"
+                    onClick={(data: any) =>
+                      setFaixaZscoreSelecionada((prev) =>
+                        prev === data.faixa ? null : data.faixa
+                      )
+                    }
+                  >
+                    {comparacaoFaixas.map((entry, index) => (
+                      <Cell
+                        key={index}
+                        fillOpacity={
+                          faixaZscoreSelecionada && faixaZscoreSelecionada !== entry.faixa ? 0.35 : 1
+                        }
+                      />
+                    ))}
+                  </Bar>
+                  <Bar
+                    dataKey="ofertaZ"
+                    name="OFERTAS"
+                    stackId="faixa"
+                    fill="#f97316"
+                    cursor="pointer"
+                    onClick={(data: any) =>
+                      setFaixaZscoreSelecionada((prev) =>
+                        prev === data.faixa ? null : data.faixa
+                      )
+                    }
+                  >
+                    {comparacaoFaixas.map((entry, index) => (
+                      <Cell
+                        key={index}
+                        fillOpacity={
+                          faixaZscoreSelecionada && faixaZscoreSelecionada !== entry.faixa ? 0.35 : 1
+                        }
+                      />
+                    ))}
+                    <LabelList
+                      dataKey="ofertaQtd"
+                      position="inside"
+                      formatter={(value: number) => value.toLocaleString("pt-BR")}
+                      fontSize={12}
+                      fontWeight={600}
+                      fill="#fff"
+                      stroke="#000"
+                      strokeWidth={3}
+                      paintOrder="stroke"
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+
+              {faixaZscoreSelecionada && (
+                <div className="mt-8 border-t pt-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+                      <ScatterChartIcon className="h-4 w-4 text-muted-foreground" />
+                      Dispersão do Valor por Hectare por Uso — faixa {formatFaixaTamanhoLabel(faixaZscoreSelecionada)} ha
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setFaixaZscoreSelecionada(null)}
+                      className="text-sm text-muted-foreground hover:text-foreground underline"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    {usoStatsFaixaZscore.length > 0
+                      ? `linha vermelha = mediana da classe — eixo até ${formatCurrency(Y_CAP)}/ha (${pontosForaDaVistaFaixaZscore.toLocaleString("pt-BR")} amostras acima, fora da vista)`
+                      : "Cada ponto representa uma oferta. A linha vermelha marca a mediana de cada classe de uso."}
+                  </p>
+                  {usoStatsFaixaZscore.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={500}>
+                      <ScatterChart margin={{ top: 30, right: 30, left: 20, bottom: 20 }}>
+                        <XAxis
+                          type="number"
+                          dataKey="x"
+                          domain={[-0.5, usoOrderFaixaZscore.length - 0.5]}
+                          ticks={usoOrderFaixaZscore.map((_, i) => i)}
+                          tick={UsoTickFaixaZscore}
+                          interval={0}
+                          height={50}
+                        />
+                        <YAxis
+                          type="number"
+                          dataKey="y"
+                          domain={[0, Y_CAP]}
+                          tickFormatter={(v) => `R$ ${(v / 1000).toLocaleString("pt-BR")}k`}
+                          width={70}
+                        />
+                        <Tooltip
+                          content={({ active, payload }) => {
+                            if (!active || !payload || !payload.length) return null
+                            const p = payload[0].payload as { uso: string; y: number }
+                            return (
+                              <div className="bg-background border rounded-md p-2 text-sm shadow-md">
+                                <div className="font-medium">{p.uso}</div>
+                                <div>{formatCurrency(p.y)}/ha</div>
+                              </div>
+                            )
+                          }}
+                        />
+                        <Scatter data={scatterDataFaixaZscore} fill="#8884d8" fillOpacity={0.6}>
+                          {scatterDataFaixaZscore.map((entry, index) => (
+                            <Cell key={index} fill={COLORS[(usoIndexFaixaZscore.get(entry.uso) ?? 0) % COLORS.length]} />
+                          ))}
+                        </Scatter>
+                        <Customized component={renderMedianLinesFaixaZscore} />
+                      </ScatterChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <p className="text-center text-muted-foreground py-8">
+                      Nenhuma oferta com preço válido nesta faixa.
+                    </p>
+                  )}
+                </div>
+              )}
+            </>
           ) : (
             <p className="text-center text-muted-foreground py-8">Nenhum dado encontrado para este polo.</p>
           )}
