@@ -540,9 +540,8 @@ export default function AnalisePage() {
             <GitCompare className="h-5 w-5 text-muted-foreground" /> Comparação CAR x Ofertas por Faixa de Tamanho
           </CardTitle>
           <CardDescription>
-            Mesmas faixas de área (ha) da planilha de referência. Padroniza a contagem de cada faixa pela média e
-            desvio padrão das faixas (separadamente para CAR e ofertas) — valores positivos indicam faixa
-            super-representada, negativos indicam sub-representada.
+            Compara, faixa a faixa, como o tamanho dos imóveis anunciados se distribui em relação ao total de CARs
+            do polo: barras para cima indicam faixa super-representada, para baixo indicam sub-representada.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -569,6 +568,9 @@ export default function AnalisePage() {
                     fontSize={12}
                     fontWeight={600}
                     fill="#fff"
+                    stroke="#000"
+                    strokeWidth={3}
+                    paintOrder="stroke"
                   />
                 </Bar>
               </BarChart>
