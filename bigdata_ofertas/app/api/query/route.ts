@@ -43,9 +43,10 @@ export async function GET(request: NextRequest) {
         paramIndex++;
       }
       if (cidades.length > 0) {
-        // Removido upper/unaccent para simplicidade com ANY.
-        // Se a busca case-insensitive/sem acento for crucial, uma abordagem mais complexa é necessária.
-        whereClause += ` AND b.municipio = ANY($${paramIndex})`;
+        // Compara sem acento e sem diferença de maiúsculas, com a mesma normalização do join com
+        // reserva_legal (caminho do polo). Assim "Luis Eduardo Magalhaes" na oferta casa com
+        // "Luís Eduardo Magalhães" do filtro, e a expressão bate com idx_bigdata_ofertas_uf_municipio.
+        whereClause += ` AND upper(immutable_unaccent(b.municipio)) = ANY(ARRAY(SELECT upper(immutable_unaccent(c)) FROM unnest($${paramIndex}::text[]) AS c))`;
         values.push(cidades);
         paramIndex++;
       }

@@ -49,7 +49,9 @@ export async function GET(request: NextRequest) {
         paramIndex++;
       }
       if (cidades.length > 0) {
-        whereClause += ` AND b.municipio = ANY($${paramIndex})`;
+        // Mesma normalização de /api/query (sem acento, sem diferença de maiúsculas), para a
+        // planilha exportada trazer exatamente as mesmas ofertas da tabela da tela.
+        whereClause += ` AND upper(immutable_unaccent(b.municipio)) = ANY(ARRAY(SELECT upper(immutable_unaccent(c)) FROM unnest($${paramIndex}::text[]) AS c))`;
         values.push(cidades);
         paramIndex++;
       }
