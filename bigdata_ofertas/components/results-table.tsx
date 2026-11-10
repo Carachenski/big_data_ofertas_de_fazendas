@@ -11,6 +11,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Download, ExternalLink, ImageIcon } from "lucide-react"
 import type { OfertaResult } from "@/components/query-form"
 
 // Define as colunas que devem ser exibidas e a ordem delas
@@ -21,6 +23,7 @@ const DISPLAY_COLUMNS = [
   "descricao",
   "foto_principal",
   "url",
+  "pagina_imagem",
   "data_processo",
   "uso",
   "site",
@@ -36,6 +39,7 @@ const COLUMN_HEADERS: { [key: string]: string } = {
   descricao: "Descrição",
   foto_principal: "Foto Principal",
   url: "URL",
+  pagina_imagem: "Página Salva",
   data_processo: "Data Processo",
   uso: "Uso",
   site: "Site",
@@ -44,9 +48,23 @@ const COLUMN_HEADERS: { [key: string]: string } = {
 }
 
 // Função para formatar valores para exibição
+// URL da imagem da página salva da oferta (servida por /api/imagem a partir de pagina_imagem)
+function imagemUrl(caminho: string, download = false): string {
+  const params = new URLSearchParams({ path: caminho })
+  if (download) params.append("download", "1")
+  return `/api/imagem?${params.toString()}`
+}
+
 function formatValue(key: string, value: any): React.ReactNode {
   if (value === null || value === undefined) {
     return "-"
+  }
+
+  // Data do processo: só mês/ano. Lê direto do texto ISO ("2025-11-19T00:00:00.000Z") em vez de
+  // usar new Date(), que no fuso do Brasil jogaria o dia 1º para o mês anterior.
+  if (key === "data_processo") {
+    const m = /^(\d{4})-(\d{2})/.exec(String(value))
+    return m ? `${m[2]}/${m[1]}` : String(value)
   }
 
   // Tratamento específico para URL
@@ -103,6 +121,9 @@ interface ResultsTableProps {
 
 export function ResultsTable({ results, isLoading }: ResultsTableProps) {
   const [modalContent, setModalContent] = useState<{ title: string; content: string } | null>(null)
+  // Oferta cuja página salva (pagina_imagem) está aberta no diálogo de imagem
+  const [imagemAberta, setImagemAberta] = useState<{ caminho: string; titulo: string } | null>(null)
+  const [erroImagem, setErroImagem] = useState(false)
 
   if (isLoading) {
     return (
@@ -177,6 +198,31 @@ export function ResultsTable({ results, isLoading }: ResultsTableProps) {
                             </TableCell>
                           )
                         }
+                        if (columnKey === "pagina_imagem") {
+                          return (
+                            <TableCell key={columnKey}>
+                              {typeof cellValue === "string" && cellValue ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setErroImagem(false)
+                                    setImagemAberta({
+                                      caminho: cellValue,
+                                      titulo: [result.site, result.municipio, result.uf].filter(Boolean).join(" · "),
+                                    })
+                                  }}
+                                  title="Ver a página do anúncio salva (para quando a oferta sai do ar)"
+                                >
+                                  <ImageIcon className="h-4 w-4" />
+                                  Ver
+                                </Button>
+                              ) : (
+                                "-"
+                              )}
+                            </TableCell>
+                          )
+                        }
                         return (
                           <TableCell key={columnKey}>
                             {formatValue(columnKey, cellValue)}
@@ -202,6 +248,47 @@ export function ResultsTable({ results, isLoading }: ResultsTableProps) {
               <p style={{ whiteSpace: 'pre-wrap' }}>{modalContent?.content}</p>
             </div>
           </DialogDescription>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!imagemAberta} onOpenChange={(isOpen) => !isOpen && setImagemAberta(null)}>
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Página salva da oferta</DialogTitle>
+            <DialogDescription>{imagemAberta?.titulo}</DialogDescription>
+          </DialogHeader>
+          {imagemAberta && (
+            <>
+              <div className="max-h-[65vh] overflow-y-auto rounded-md border bg-secondary">
+                {erroImagem ? (
+                  <p className="p-8 text-center text-muted-foreground">
+                    Não foi possível carregar a imagem desta oferta.
+                  </p>
+                ) : (
+                  <img
+                    src={imagemUrl(imagemAberta.caminho)}
+                    alt="Página salva da oferta"
+                    className="w-full h-auto"
+                    onError={() => setErroImagem(true)}
+                  />
+                )}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" asChild>
+                  <a href={imagemUrl(imagemAberta.caminho)} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-4 w-4" />
+                    Abrir em nova aba
+                  </a>
+                </Button>
+                <Button asChild disabled={erroImagem}>
+                  <a href={imagemUrl(imagemAberta.caminho, true)}>
+                    <Download className="h-4 w-4" />
+                    Baixar
+                  </a>
+                </Button>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </>

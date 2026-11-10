@@ -5,4 +5,13 @@ services:
       - "3000:3000"
     env_file:
       - ./.env.docker
+    environment:
+      # Pasta (dentro do container) com as imagens das páginas das ofertas, salvas para quando o
+      # anúncio sai do ar. bigdata_ofertas.pagina_imagem guarda o caminho relativo
+      # "ofertas_paginas/<site>/<xx>/<arquivo>.webp"; /api/imagem serve os arquivos daqui.
+      OFERTAS_PAGINAS_DIR: /data/ofertas_paginas
+    volumes:
+      # Pasta da máquina host montada só para leitura. Para usar outra pasta, defina
+      # OFERTAS_PAGINAS_HOST num arquivo .env ao lado deste compose.
+      - ${OFERTAS_PAGINAS_HOST:-C:/Users/user/Downloads/ofertas_paginas}:/data/ofertas_paginas:ro
     restart: unless-stopped
