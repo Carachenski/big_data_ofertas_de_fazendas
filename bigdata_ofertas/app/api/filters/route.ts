@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { Pool } from "pg"
+import { dashboardEmCache } from "@/lib/dashboard"
 
 const pool = new Pool({
   database: process.env.DB_NAME,
@@ -20,12 +21,19 @@ export async function GET() {
 
     // A busca de cidades foi movida para /api/cities?uf=... para carregamento sob demanda
 
-    // Buscar usos distintos
-    const usosResult = await pool.query(`
-      SELECT DISTINCT uso FROM bigdata_ofertas 
-      WHERE uso IS NOT NULL 
-      ORDER BY uso
-    `)
+    // Usos distintos. SELECT DISTINCT uso varre bigdata_ofertas inteira (~1 GB, até 15 s) para achar
+    // ~8 valores; o cálculo do Dashboard (lib/dashboard.ts, feito quando o servidor sobe) já tem essa
+    // lista, na mesma ordem. Só consulta o banco se esse cálculo ainda não existir.
+    const dashboard = dashboardEmCache()
+    const usos = dashboard
+      ? dashboard.ofertasPorUso.map((u) => u.uso)
+      : (
+          await pool.query(`
+            SELECT DISTINCT uso FROM bigdata_ofertas
+            WHERE uso IS NOT NULL
+            ORDER BY uso
+          `)
+        ).rows.map((r) => r.uso)
 
     // Buscar polos agrícolas distintos
     const polosResult = await pool.query(`
@@ -39,7 +47,7 @@ export async function GET() {
     return NextResponse.json({
       ufs: ufsResult.rows.map((r) => r.uf),
       cidades: [], // Retorna array vazio, cidades são carregadas sob demanda
-      usos: usosResult.rows.map((r) => r.uso),
+      usos,
       polos: polosResult.rows.map((r) => Buffer.from(r.nome, 'latin1').toString('utf-8')),
     })
   } catch (error) {
