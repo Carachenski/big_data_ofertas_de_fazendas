@@ -16,6 +16,7 @@ interface DashboardData {
   ofertasPorUf: { uf: string; count: number }[];
   ofertasPorUso: { uso: string; count: number }[];
   ofertasPorPolo: { polo_agro: string; count: number }[];
+  atualizadoEm: string; // ISO; momento em que o servidor calculou estes números
 }
 
 export default function DashboardPage() {
@@ -116,6 +117,13 @@ export default function DashboardPage() {
           <div>
             <h1 className="text-3xl font-bold text-foreground">Dashboard de Ofertas</h1>
             <p className="text-muted-foreground">Visão geral quantitativa do banco de dados.</p>
+            {data.atualizadoEm && (
+              <p className="text-xs text-muted-foreground">
+                Números calculados em{" "}
+                {new Date(data.atualizadoEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                {" "}(recalculados a cada hora).
+              </p>
+            )}
           </div>
       </div>
 
