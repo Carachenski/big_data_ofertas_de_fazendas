@@ -12,23 +12,23 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Download, ExternalLink, ImageIcon } from "lucide-react"
+import { Download, ExternalLink, FileText, ImageIcon, ImageOff } from "lucide-react"
 import type { OfertaResult } from "@/components/query-form"
 
 // Define as colunas que devem ser exibidas e a ordem delas
 const DISPLAY_COLUMNS = [
-  "preco",
   "municipio",
   "uf",
-  "descricao",
+  "preco",
+  "area",
+  "valor_ha",
   "foto_principal",
+  "uso",
   "url",
   "pagina_imagem",
   "data_processo",
-  "uso",
   "site",
-  "area",
-  "valor_ha",
+  "descricao",
 ]
 
 // Mapeia os nomes das colunas para os cabeçalhos de exibição
@@ -55,6 +55,66 @@ function imagemUrl(caminho: string, download = false): string {
   return `/api/imagem?${params.toString()}`
 }
 
+// URL da foto principal a exibir, ou null se o valor não for uma URL utilizável
+function urlFotoPrincipal(value: unknown): string | null {
+  // No Viva Real o coletor gravou o srcset inteiro ("url1 340w, url2 768w, url3 1080w") em vez de
+  // uma URL. Usa a primeira URL da lista, a menor (200x200), que basta para a miniatura.
+  let foto = typeof value === "string" ? value.trim().split(/\s+/)[0] : ""
+  // No Buskaza parte das fotos passa pelo intermediário cdn.buskaza.com.br, que saiu do ar (o domínio
+  // não existe mais). A URL traz a foto original no parâmetro image_url; usa ela direto.
+  try {
+    const u = new URL(foto)
+    const original = u.hostname === "cdn.buskaza.com.br" ? u.searchParams.get("image_url") : null
+    if (original) foto = original
+  } catch {
+    // não é URL; cai no teste abaixo
+  }
+  // A base também tem valores como "N/A", que o navegador mostraria como imagem quebrada
+  return /^https?:\/\//i.test(foto) ? foto : null
+}
+
+// Miniatura da foto principal. Quando a foto não existe mais no site de origem (anúncio removido,
+// site que trocou os arquivos, como o Parnaíba), mostra um ícone de "foto indisponível" no lugar da
+// imagem quebrada; se houver página salva, o clique abre o print, onde a foto aparece.
+function FotoPrincipal({ value, onAbrirPaginaSalva }: { value: unknown; onAbrirPaginaSalva?: () => void }) {
+  const foto = urlFotoPrincipal(value)
+  const [falhou, setFalhou] = useState(false)
+  useEffect(() => setFalhou(false), [foto])
+
+  if (!foto) return <>-</>
+
+  if (falhou) {
+    const titulo = onAbrirPaginaSalva
+      ? "A foto não está mais disponível no site. Clique para ver a página salva do anúncio."
+      : "A foto não está mais disponível no site."
+    return (
+      <button
+        type="button"
+        onClick={onAbrirPaginaSalva}
+        disabled={!onAbrirPaginaSalva}
+        title={titulo}
+        aria-label={titulo}
+        className="flex w-20 h-14 items-center justify-center rounded border border-dashed text-muted-foreground enabled:hover:bg-secondary enabled:cursor-pointer"
+      >
+        <ImageOff className="h-5 w-5" />
+      </button>
+    )
+  }
+
+  return (
+    <img
+      src={foto}
+      alt="Foto Principal"
+      // Os CDNs de imagem da OLX, Zap Imóveis e Viva Real bloqueiam (403) pedidos cujo Referer é
+      // outro site (proteção contra hotlink). Sem Referer eles entregam a foto normalmente.
+      referrerPolicy="no-referrer"
+      loading="lazy"
+      className="w-20 h-14 object-cover rounded"
+      onError={() => setFalhou(true)}
+    />
+  )
+}
+
 function formatValue(key: string, value: any): React.ReactNode {
   if (value === null || value === undefined) {
     return "-"
@@ -76,28 +136,26 @@ function formatValue(key: string, value: any): React.ReactNode {
     )
   }
 
-  // Tratamento específico para Foto Principal (assumindo que seja uma URL de imagem)
-  if (key === "foto_principal" && typeof value === "string") {
-    return (
-      <img
-        src={value}
-        alt="Foto Principal"
-        className="w-20 h-14 object-cover rounded"
-        onError={(e) => {
-          // A imagem original falhou, não tentar carregar outro placeholder que pode falhar
-          // O navegador mostrará o ícone de imagem quebrada por padrão
-        }}
-      />
-    )
+  // Área: sempre 2 casas decimais. Vem do banco como texto (numeric -> "5000.0000"), por isso
+  // converte antes de formatar.
+  if (key === "area") {
+    const area = Number(value)
+    return Number.isFinite(area)
+      ? area.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : String(value)
+  }
+
+  // Preço e valor/ha: em reais com centavos. Vêm do banco como texto já formatado
+  // (tipo money -> "R$ 270.000.000,00"), por isso convertem para número antes de formatar.
+  if (key === "preco" || key === "valor_ha") {
+    const reais =
+      typeof value === "number" ? value : Number(String(value).replace(/[^\d,-]/g, "").replace(",", "."))
+    return Number.isFinite(reais)
+      ? reais.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : String(value)
   }
 
   if (typeof value === "number") {
-    if (key === "preco" || key === "valor_ha") {
-      return value.toLocaleString("pt-BR", {
-        style: "currency",
-        currency: "BRL",
-      })
-    }
     // Formatação para outros números (como área)
     return value.toLocaleString("pt-BR", {
       minimumFractionDigits: 2,
@@ -153,6 +211,15 @@ export function ResultsTable({ results, isLoading }: ResultsTableProps) {
     setModalContent(null)
   }
 
+  // Abre o diálogo com a página salva (print) da oferta
+  const abrirPaginaSalva = (result: OfertaResult) => {
+    setErroImagem(false)
+    setImagemAberta({
+      caminho: result.pagina_imagem,
+      titulo: [result.site, result.municipio, result.uf].filter(Boolean).join(" · "),
+    })
+  }
+
   return (
     <>
       <Card>
@@ -184,17 +251,34 @@ export function ResultsTable({ results, isLoading }: ResultsTableProps) {
                     <TableRow key={result.id || index}>
                       {DISPLAY_COLUMNS.map((columnKey) => {
                         const cellValue = result[columnKey]
-                        if (columnKey === descriptionColumn && typeof cellValue === 'string') {
+                        if (columnKey === descriptionColumn) {
+                          // Só um botão, para não ocupar espaço com o texto; o texto abre no diálogo
                           return (
-                            <TableCell
-                              key={columnKey}
-                              onDoubleClick={() => handleDoubleClick(cellValue, "Descrição Completa")}
-                              className="cursor-pointer"
-                              title="Clique duas vezes para ver a descrição completa"
-                            >
-                              <div className="max-w-xs truncate">
-                                {cellValue}
-                              </div>
+                            <TableCell key={columnKey}>
+                              {typeof cellValue === "string" && cellValue.trim() ? (
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleDoubleClick(cellValue, "Descrição Completa")}
+                                  title="Ler a descrição completa do anúncio"
+                                  aria-label="Ler a descrição completa do anúncio"
+                                >
+                                  <FileText className="h-4 w-4" />
+                                </Button>
+                              ) : (
+                                "-"
+                              )}
+                            </TableCell>
+                          )
+                        }
+                        if (columnKey === "foto_principal") {
+                          return (
+                            <TableCell key={columnKey}>
+                              <FotoPrincipal
+                                value={cellValue}
+                                onAbrirPaginaSalva={result.pagina_imagem ? () => abrirPaginaSalva(result) : undefined}
+                              />
                             </TableCell>
                           )
                         }
@@ -205,13 +289,7 @@ export function ResultsTable({ results, isLoading }: ResultsTableProps) {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => {
-                                    setErroImagem(false)
-                                    setImagemAberta({
-                                      caminho: cellValue,
-                                      titulo: [result.site, result.municipio, result.uf].filter(Boolean).join(" · "),
-                                    })
-                                  }}
+                                  onClick={() => abrirPaginaSalva(result)}
                                   title="Ver a página do anúncio salva (para quando a oferta sai do ar)"
                                 >
                                   <ImageIcon className="h-4 w-4" />
