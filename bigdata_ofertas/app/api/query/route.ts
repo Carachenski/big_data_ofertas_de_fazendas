@@ -97,6 +97,8 @@ export async function GET(request: NextRequest) {
       LEFT JOIN polo_agro pa
              ON pa.id_agrovalora = pam.polo_agro_id
       WHERE 1=1 ${whereClause}
+      -- Ofertas mais recentes primeiro; sem data no fim. b.id desempata para a ordem ser estável.
+      ORDER BY b.data_processo DESC NULLS LAST, b.id
     `;
 
     const result = await client.query(query, values);
