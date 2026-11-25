@@ -69,6 +69,9 @@ function urlFotoPrincipal(value: unknown): string | null {
   } catch {
     // não é URL; cai no teste abaixo
   }
+  // Logo da plataforma Kenlo (static-sites.kenlo.io/.../kenlo.svg): o coletor do bentoimoveismt
+  // gravou o logo do site no lugar da foto do imóvel. Não é foto da fazenda; trata como sem foto.
+  if (/^https?:\/\/static-sites\.kenlo\.io\/.*\/kenlo\.svg/i.test(foto)) return null
   // A base também tem valores como "N/A", que o navegador mostraria como imagem quebrada
   return /^https?:\/\//i.test(foto) ? foto : null
 }
@@ -80,13 +83,14 @@ function FotoPrincipal({ value, onAbrirPaginaSalva }: { value: unknown; onAbrirP
   const foto = urlFotoPrincipal(value)
   const [falhou, setFalhou] = useState(false)
   useEffect(() => setFalhou(false), [foto])
+  // Oferta com o logo da Kenlo gravado no lugar da foto: também é "foto indisponível"
+  const soLogo = !foto && typeof value === "string" && /kenlo\.svg/i.test(value)
 
-  if (!foto) return <>-</>
+  if (!foto && !soLogo) return <>-</>
 
-  if (falhou) {
-    const titulo = onAbrirPaginaSalva
-      ? "A foto não está mais disponível no site. Clique para ver a página salva do anúncio."
-      : "A foto não está mais disponível no site."
+  if (!foto || falhou || soLogo) {
+    const motivo = soLogo ? "A foto desta oferta não foi coletada." : "A foto não está mais disponível no site."
+    const titulo = onAbrirPaginaSalva ? `${motivo} Clique para ver a página salva do anúncio.` : motivo
     return (
       <button
         type="button"
